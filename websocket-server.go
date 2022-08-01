@@ -10,6 +10,7 @@ import (
 
 // var chatrooms = make(map[string]ChatRoom)
 var groupchats = make([]*GroupChat, 0)
+var clients = make([]*Client, 0)
 
 // var personalRooms = make(map[string]PersonalRoom)
 // var clients = make(map[string]bool)
@@ -29,23 +30,32 @@ var upgrader = websocket.Upgrader{}
 // 	Client2 *Client
 // }
 
+// Struct to unmarshal 'Type' property from incoming JSON message
 type JSON struct {
 	Type string
 }
 
+// Struct to unmarshal client requests other than
+// sending a message in a chat room
 type Request struct {
 	Request    string
 	SenderName string
 }
 
+// Struct to marshal server response into JSON
 type Response struct {
+	Type    string
 	Payload string
 }
 
+type CreateGroupchatRequest struct {
+	Name string
+}
+
 type Message struct {
-	Message       string `json:"message"`
-	SenderName    string `json:"sendername"`
-	GroupChatName string `json:"groupchatname"`
+	Message       string
+	SenderName    string
+	GroupChatName string
 	Timestamp     time.Time
 }
 

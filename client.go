@@ -1,10 +1,9 @@
 package main
 
 import (
-	"json"
+	"encoding/json"
 	"log"
 	"net/http"
-	// "regexp"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,47 +22,108 @@ func (client *Client) readPump() {
 		for _, groupchat := range client.GroupChats {
 			groupchat.Unregister <- client
 		}
-		client.Connection.Close()
 	}()
 	var incomingJSON JSON
 	for {
-		err := client.Connection.ReadJSON(&incomingJSON)
+		_, incomingByteArray, err := client.Connection.ReadMessage()
+		log.Print("Read message type")
 		if err != nil {
-			log.Printf("error occurred while writing message to client: %v", err)
+			log.Printf("error occurred while reading message from client: %v", err)
 			client.Connection.Close()
 			break
 		}
-		// Check the type and act accordingly
-		// messageType := getType(string(messageByteArray))
+		err = json.Unmarshal(incomingByteArray, &incomingJSON)
+		if err != nil {
+			log.Printf("error occurred while unmarshalling JSON: %v", err)
+			client.Connection.Close()
+			break
+		}
+
 		switch incomingJSON.Type {
+
 		case "connect":
 			// broadcast new user joined to all public group chats
-			// send list of group chats to this client
 			var request Request
-			err = client.Connection.ReadJSON(&request)
+			err = json.Unmarshal(incomingByteArray, &request)
+			// log.Print(incomingJSON)
+			// log.Print(request)
+			// client.Nickname = request.SenderName
+			if err != nil {
+				log.Printf("error occurred while unmarshalling request: %v", err)
+				client.Connection.Close()
+				break
+			}
+			var groupchatNamesCSV string
+			for _, groupchat := range groupchats {
+				groupchatNamesCSV += groupchat.Name + ","
+			}
+			// remove last comma
+			groupchatNamesCSV = groupchatNamesCSV[:len(groupchatNamesCSV)-1]
+			response := Response{Type: "GroupChats", Payload: groupchatNamesCSV}
+			groupchatNamesJSON, err := json.Marshal(response)
+			if err != nil {
+				log.Printf("error occurred while marshalling groupchat names: %v", err)
+				client.Connection.Close()
+				break
+			}
+			client.Send <- groupchatNamesJSON
 
 		case "message":
 			var message Message
-			err = client.Connection.ReadJSON(&message)
+			err = json.Unmarshal(incomingByteArray, &message)
+			if err != nil {
+				log.Printf("error occurred while reading message from client: %v", err)
+				client.Connection.Close()
+				break
+			}
 			message.Timestamp = time.Now()
-			messageJSON := json.Marshall(message)
+			messageJSON, err := json.Marshal(message)
+			if err != nil {
+				log.Printf("error occurred while marshalling message: %v", err)
+				client.Connection.Close()
+				break
+			}
 			for _, groupchat := range client.GroupChats {
 				if groupchat.Name == message.GroupChatName {
-					groupchat.Broadcast <- &messageJSON
+					groupchat.Broadcast <- messageJSON
 				}
 			}
-		}
 
+		case "creategroupchat":
+			var groupchatRequest CreateGroupchatRequest
+			err = json.Unmarshal(incomingByteArray, &groupchatRequest)
+			if err != nil {
+				log.Printf("error occurred while reading create groupchat request from client: %v", err)
+				client.Connection.Close()
+				break
+			}
+			newGroupChat := &GroupChat{
+				Name:       groupchatRequest.Name,
+				Broadcast:  make(chan []byte),
+				Register:   make(chan *Client),
+				Unregister: make(chan *Client),
+				Clients:    make(map[*Client]bool),
+			}
+			go newGroupChat.run()
+			groupchats = append(groupchats, newGroupChat)
+			groupchatResponse := Response{
+				Type:    "NewGroupChat",
+				Payload: newGroupChat.Name,
+			}
+			groupchatResponseJSON, err := json.Marshal(groupchatResponse)
+			if err != nil {
+				log.Printf("error occurred while marshalling new groupchat response: %v", err)
+				client.Connection.Close()
+				break
+			}
+			for _, c := range clients {
+				newGroupChat.Register <- c
+				c.GroupChats = append(c.GroupChats, newGroupChat)
+				c.Send <- groupchatResponseJSON
+			}
+		}
 	}
 }
-
-// // Get message type from web socket message
-// func getType(s string) string {
-// 	re := regexp.MustCompile(`"type":"[a-zA-Z0-9 ]*"`)
-// 	messageType := re.FindString(s)
-// 	// cut off "type":"<message type>" to get <message type>
-// 	return string([]rune(messageType)[8 : len([]rune(messageType))-1])
-// }
 
 func (client *Client) writePump() {
 	defer func() {
@@ -71,10 +131,11 @@ func (client *Client) writePump() {
 	}()
 	for {
 		message := <-client.Send
-		err := client.Connection.WriteJSON(message)
+		err := client.Connection.WriteMessage(1, message)
 		if err != nil {
 			log.Printf("error occurred while writing message to client: %v", err)
 			client.Connection.Close()
+			break
 		}
 	}
 }
@@ -87,6 +148,7 @@ func serveWs(groupchats []*GroupChat, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := &Client{GroupChats: groupchats, Connection: connection, Send: make(chan []byte)}
+	clients = append(clients, client)
 	for _, groupchat := range groupchats {
 		groupchat.Register <- client
 	}

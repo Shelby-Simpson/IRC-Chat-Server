@@ -15,16 +15,14 @@ func (groupchat *GroupChat) run() {
 		case client := <-groupchat.Register:
 			groupchat.Clients[client] = true
 		case client := <-groupchat.Unregister:
-			if _, ok := groupchat.Clients[client]; ok {
-				delete(groupchat.Clients, client)
-				close(client.Send)
-			}
+			delete(groupchat.Clients, client)
+			// close(client.Send)
 		case message := <-groupchat.Broadcast:
 			for client := range groupchat.Clients {
 				select {
 				case client.Send <- message:
 				default:
-					close(client.Send)
+					// close(client.Send)
 					delete(groupchat.Clients, client)
 				}
 			}

@@ -24,7 +24,8 @@
 
 # Existing Issues with the Application:
 1. Client data is not persistent.  When a client exits the browser tab or refreshes, they disconnect from the server and all of their data is lost.  A database (such as MongoDB) will be added in the future to fix this issue.
-2. A client in unable to delete a chat room.  Personal rooms need to be deleted when a client disconnects.
-3. Nicknames and group chat names can be empty strings and they are not unique.  Adding name checks on both the frontend and backend can fix this issue.
-4. The frontend is not responsive.  Certain screens will not be formatted well.
-5. The general style of the frontend is not very user-friendly.
+2. All chat rooms are stored on one server.  Clients cannot select a different port to connect to a different one.
+3. A client in unable to delete a chat room.  Personal rooms need to be deleted when a client disconnects.
+4. Nicknames and group chat names can be empty strings and they are not unique.  Adding name checks on both the frontend and backend can fix this issue.
+5. The frontend is not responsive.  Certain screens will not be formatted well.
+6. The general style of the frontend is not very user-friendly.

@@ -17,6 +17,8 @@ type PersonalRoom struct {
 	Broadcast chan []byte
 }
 
+// run listens for clients registering, unregistering,
+// and broadcasting messages on a group chat
 func (groupchat *GroupChat) run() {
 	for {
 		select {
@@ -36,6 +38,7 @@ func (groupchat *GroupChat) run() {
 	}
 }
 
+// run broadcasts messages to the clients in a personal room
 func (personalroom *PersonalRoom) run() {
 	for {
 		message := <-personalroom.Broadcast

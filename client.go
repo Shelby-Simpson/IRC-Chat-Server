@@ -17,6 +17,7 @@ type Client struct {
 	PersonalRooms []*PersonalRoom
 }
 
+// readPump listens for incoming messages
 func (client *Client) readPump() {
 	defer func() {
 		for _, groupchat := range client.GroupChats {
@@ -31,6 +32,7 @@ func (client *Client) readPump() {
 			client.closeClient()
 			break
 		}
+		// The incoming message is unmarshalled in a JSON struct
 		err = json.Unmarshal(incomingByteArray, &incomingJSON)
 		if err != nil {
 			log.Printf("error occurred while unmarshalling JSON: %v", err)
@@ -39,7 +41,7 @@ func (client *Client) readPump() {
 		}
 
 		switch incomingJSON.Type {
-
+		// The client just connected to the server
 		case "connect":
 			// broadcast new user joined to all public group chats
 			var request Request
@@ -92,6 +94,7 @@ func (client *Client) readPump() {
 				}
 			}
 
+		// The client is sending a message to a group chat
 		case "groupchatmessage":
 			var message Message
 			err = json.Unmarshal(incomingByteArray, &message)
@@ -113,6 +116,7 @@ func (client *Client) readPump() {
 				}
 			}
 
+		// The client is sending a message to a personal room
 		case "personalroommessage":
 			var message Message
 			err = json.Unmarshal(incomingByteArray, &message)
@@ -134,6 +138,7 @@ func (client *Client) readPump() {
 				}
 			}
 
+		// The client wants to create a new group chat
 		case "creategroupchat":
 			var groupchatRequest CreateGroupchatRequest
 			err = json.Unmarshal(incomingByteArray, &groupchatRequest)
@@ -167,6 +172,7 @@ func (client *Client) readPump() {
 				c.Send <- groupchatResponseJSON
 			}
 
+		// The client wants to create a new personal room
 		case "createpersonalroom":
 			var personalroomRequest CreatePersonalRoomRequest
 			err = json.Unmarshal(incomingByteArray, &personalroomRequest)
@@ -207,6 +213,7 @@ func (client *Client) readPump() {
 	}
 }
 
+// writePump writes messages to the client
 func (client *Client) writePump() {
 	defer func() {
 		client.Connection.Close()
@@ -222,6 +229,7 @@ func (client *Client) writePump() {
 	}
 }
 
+// serveWS upgrades a connection to web socket and creates a new client
 func serveWs(groupchats []*GroupChat, w http.ResponseWriter, r *http.Request) {
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 	connection, err := upgrader.Upgrade(w, r, nil)
@@ -239,6 +247,7 @@ func serveWs(groupchats []*GroupChat, w http.ResponseWriter, r *http.Request) {
 	go client.writePump()
 }
 
+// closeClient is abstracted code to remove a client when they disconnect
 func (client *Client) closeClient() {
 	client.Connection.Close()
 	disconnectedClientResponse := Response{Type: "ClientDisconnect", Payload: client.Nickname}

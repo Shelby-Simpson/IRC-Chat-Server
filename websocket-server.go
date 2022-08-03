@@ -10,6 +10,7 @@ import (
 
 // var chatrooms = make(map[string]ChatRoom)
 var groupchats = make([]*GroupChat, 0)
+var personalrooms = make([]*PersonalRoom, 0)
 var clients = make([]*Client, 0)
 
 // var personalRooms = make(map[string]PersonalRoom)
@@ -21,13 +22,6 @@ var upgrader = websocket.Upgrader{}
 // type ChatRoom interface {
 // 	createChatRoom(name string, client1 Client, client2 Client)
 // 	broadcastMessage(message Message)
-// }
-
-// Implements ChatRoom
-// type PersonalRoom struct {
-// 	Name    string
-// 	Client1 *Client
-// 	Client2 *Client
 // }
 
 // Struct to unmarshal 'Type' property from incoming JSON message
@@ -52,11 +46,16 @@ type CreateGroupchatRequest struct {
 	Name string
 }
 
+type CreatePersonalRoomRequest struct {
+	RecipientName string
+}
+
 type Message struct {
-	Message       string
-	SenderName    string
-	GroupChatName string
-	Timestamp     time.Time
+	Message      string
+	SenderName   string
+	ChatRoomName string
+	ChatRoomType string
+	Timestamp    time.Time
 }
 
 // func (channel *GroupChat) createChatRoom(name string, client1 Client, client2 Client) {

@@ -9,6 +9,14 @@ type GroupChat struct {
 	Unregister chan *Client
 }
 
+// Implements ChatRoom
+type PersonalRoom struct {
+	Name      string
+	Client1   *Client
+	Client2   *Client
+	Broadcast chan []byte
+}
+
 func (groupchat *GroupChat) run() {
 	for {
 		select {
@@ -16,16 +24,22 @@ func (groupchat *GroupChat) run() {
 			groupchat.Clients[client] = true
 		case client := <-groupchat.Unregister:
 			delete(groupchat.Clients, client)
-			// close(client.Send)
 		case message := <-groupchat.Broadcast:
 			for client := range groupchat.Clients {
 				select {
 				case client.Send <- message:
 				default:
-					// close(client.Send)
 					delete(groupchat.Clients, client)
 				}
 			}
 		}
+	}
+}
+
+func (personalroom *PersonalRoom) run() {
+	for {
+		message := <-personalroom.Broadcast
+		personalroom.Client1.Send <- message
+		personalroom.Client2.Send <- message
 	}
 }

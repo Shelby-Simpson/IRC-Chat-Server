@@ -10,11 +10,11 @@ import (
 )
 
 type Client struct {
-	Nickname   string
-	Connection *websocket.Conn
-	GroupChats []*GroupChat
-	Send       chan []byte
-	// PersonalRooms []*PersonalRoom
+	Nickname      string
+	Connection    *websocket.Conn
+	GroupChats    []*GroupChat
+	Send          chan []byte
+	PersonalRooms []*PersonalRoom
 }
 
 func (client *Client) readPump() {
@@ -26,16 +26,15 @@ func (client *Client) readPump() {
 	var incomingJSON JSON
 	for {
 		_, incomingByteArray, err := client.Connection.ReadMessage()
-		log.Print("Read message type")
 		if err != nil {
 			log.Printf("error occurred while reading message from client: %v", err)
-			client.Connection.Close()
+			client.closeClient()
 			break
 		}
 		err = json.Unmarshal(incomingByteArray, &incomingJSON)
 		if err != nil {
 			log.Printf("error occurred while unmarshalling JSON: %v", err)
-			client.Connection.Close()
+			client.closeClient()
 			break
 		}
 
@@ -45,47 +44,93 @@ func (client *Client) readPump() {
 			// broadcast new user joined to all public group chats
 			var request Request
 			err = json.Unmarshal(incomingByteArray, &request)
-			// log.Print(incomingJSON)
-			// log.Print(request)
-			// client.Nickname = request.SenderName
+			client.Nickname = request.SenderName
 			if err != nil {
 				log.Printf("error occurred while unmarshalling request: %v", err)
-				client.Connection.Close()
+				client.closeClient()
 				break
 			}
+			// Send list of existing groupchats
 			var groupchatNamesCSV string
 			for _, groupchat := range groupchats {
 				groupchatNamesCSV += groupchat.Name + ","
 			}
-			// remove last comma
-			groupchatNamesCSV = groupchatNamesCSV[:len(groupchatNamesCSV)-1]
-			response := Response{Type: "GroupChats", Payload: groupchatNamesCSV}
-			groupchatNamesJSON, err := json.Marshal(response)
+			groupchatNamesCSV = groupchatNamesCSV[:len(groupchatNamesCSV)-1] // removes last comma
+			groupchatNamesResponse := Response{Type: "ChatRooms", Payload: groupchatNamesCSV}
+			groupchatNamesJSON, err := json.Marshal(groupchatNamesResponse)
 			if err != nil {
 				log.Printf("error occurred while marshalling groupchat names: %v", err)
-				client.Connection.Close()
+				client.closeClient()
 				break
 			}
 			client.Send <- groupchatNamesJSON
+			// Send list of existing clients
+			var clientNamesCSV string
+			for _, client := range clients {
+				clientNamesCSV += client.Nickname + ","
+			}
+			clientNamesCSV = clientNamesCSV[:len(clientNamesCSV)-1] // removes last comma
+			clientNamesResponse := Response{Type: "Clients", Payload: clientNamesCSV}
+			clientNamesJSON, err := json.Marshal(clientNamesResponse)
+			if err != nil {
+				log.Printf("error occurred while marshalling client names: %v", err)
+				client.closeClient()
+				break
+			}
+			client.Send <- clientNamesJSON
+			// Tell other clients about the new connection
+			newClientResponse := Response{Type: "NewClient", Payload: client.Nickname}
+			newClientJSON, err := json.Marshal(newClientResponse)
+			if err != nil {
+				log.Printf("error occurred while marshalling new client name: %v", err)
+				client.closeClient()
+				break
+			}
+			for _, c := range clients {
+				if c != client {
+					c.Send <- newClientJSON
+				}
+			}
 
-		case "message":
+		case "groupchatmessage":
 			var message Message
 			err = json.Unmarshal(incomingByteArray, &message)
 			if err != nil {
 				log.Printf("error occurred while reading message from client: %v", err)
-				client.Connection.Close()
+				client.closeClient()
 				break
 			}
 			message.Timestamp = time.Now()
 			messageJSON, err := json.Marshal(message)
 			if err != nil {
 				log.Printf("error occurred while marshalling message: %v", err)
-				client.Connection.Close()
+				client.closeClient()
 				break
 			}
 			for _, groupchat := range client.GroupChats {
-				if groupchat.Name == message.GroupChatName {
+				if groupchat.Name == message.ChatRoomName {
 					groupchat.Broadcast <- messageJSON
+				}
+			}
+
+		case "personalroommessage":
+			var message Message
+			err = json.Unmarshal(incomingByteArray, &message)
+			if err != nil {
+				log.Printf("error occurred while reading message from client: %v", err)
+				client.closeClient()
+				break
+			}
+			message.Timestamp = time.Now()
+			messageJSON, err := json.Marshal(message)
+			if err != nil {
+				log.Printf("error occurred while marshalling message: %v", err)
+				client.closeClient()
+				break
+			}
+			for _, personalroom := range client.PersonalRooms {
+				if personalroom.Name == message.ChatRoomName {
+					personalroom.Broadcast <- messageJSON
 				}
 			}
 
@@ -94,7 +139,7 @@ func (client *Client) readPump() {
 			err = json.Unmarshal(incomingByteArray, &groupchatRequest)
 			if err != nil {
 				log.Printf("error occurred while reading create groupchat request from client: %v", err)
-				client.Connection.Close()
+				client.closeClient()
 				break
 			}
 			newGroupChat := &GroupChat{
@@ -113,7 +158,7 @@ func (client *Client) readPump() {
 			groupchatResponseJSON, err := json.Marshal(groupchatResponse)
 			if err != nil {
 				log.Printf("error occurred while marshalling new groupchat response: %v", err)
-				client.Connection.Close()
+				client.closeClient()
 				break
 			}
 			for _, c := range clients {
@@ -121,6 +166,43 @@ func (client *Client) readPump() {
 				c.GroupChats = append(c.GroupChats, newGroupChat)
 				c.Send <- groupchatResponseJSON
 			}
+
+		case "createpersonalroom":
+			var personalroomRequest CreatePersonalRoomRequest
+			err = json.Unmarshal(incomingByteArray, &personalroomRequest)
+			if err != nil {
+				log.Printf("error occurred while reading create personal room request from client: %v", err)
+				client.closeClient()
+				break
+			}
+			var client2 *Client
+			for _, c := range clients {
+				if c.Nickname == personalroomRequest.RecipientName {
+					client2 = c
+				}
+			}
+			newPersonalRoom := &PersonalRoom{
+				Name:      client.Nickname + client2.Nickname,
+				Client1:   client,
+				Client2:   client2,
+				Broadcast: make(chan []byte),
+			}
+			go newPersonalRoom.run()
+			personalrooms = append(personalrooms, newPersonalRoom)
+			personalroomResponse := Response{
+				Type:    "NewPersonalRoom",
+				Payload: newPersonalRoom.Name,
+			}
+			personalroomResponseJSON, err := json.Marshal(personalroomResponse)
+			if err != nil {
+				log.Printf("error occurred while marshalling new personal room response: %v", err)
+				client.closeClient()
+				break
+			}
+			client.PersonalRooms = append(client.PersonalRooms, newPersonalRoom)
+			client.Send <- personalroomResponseJSON
+			client2.PersonalRooms = append(client2.PersonalRooms, newPersonalRoom)
+			client2.Send <- personalroomResponseJSON
 		}
 	}
 }
@@ -134,7 +216,7 @@ func (client *Client) writePump() {
 		err := client.Connection.WriteMessage(1, message)
 		if err != nil {
 			log.Printf("error occurred while writing message to client: %v", err)
-			client.Connection.Close()
+			client.closeClient()
 			break
 		}
 	}
@@ -155,4 +237,18 @@ func serveWs(groupchats []*GroupChat, w http.ResponseWriter, r *http.Request) {
 
 	go client.readPump()
 	go client.writePump()
+}
+
+func (client *Client) closeClient() {
+	client.Connection.Close()
+	disconnectedClientResponse := Response{Type: "ClientDisconnect", Payload: client.Nickname}
+	disconnectedClientJSON, _ := json.Marshal(disconnectedClientResponse)
+	for i := range clients {
+		if clients[i] == client {
+			clients[i] = clients[len(clients)-1]
+		} else {
+			clients[i].Send <- disconnectedClientJSON
+		}
+	}
+	clients = clients[:len(clients)-1]
 }
